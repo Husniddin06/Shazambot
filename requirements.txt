@@ -1,0 +1,6 @@
+aiogram>=3.0.0
+yt-dlp
+aiohttp
+redis
+python-dotenv
+ffmpeg-python
