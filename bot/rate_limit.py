@@ -1,20 +1,19 @@
-import time
+from utils.redis_cache import r, is_premium
 
-user_requests = {}
-
-def check_limit(user_id):
-    now = time.time()
-
-    if user_id not in user_requests:
-        user_requests[user_id] = []
-
-    # Oxirgi 5 soniyadagi so'rovlarni saqlash
-    user_requests[user_id] = [
-        t for t in user_requests[user_id] if now - t < 5
-    ]
-
-    if len(user_requests[user_id]) > 3:
-        return False
-
-    user_requests[user_id].append(now)
-    return True
+async def check_limit(user_id: int, limit: int = 3, window: int = 5) -> bool:
+    # Premium foydalanuvchilar uchun limit yo'q
+    if is_premium(user_id):
+        return True
+        
+    if not r:
+        # Redis bo'lmasa, limit qo'llanilmaydi (yoki xohishga ko'ra boshqa mantiq)
+        return True
+        
+    key = f"rl:{user_id}"
+    try:
+        count = r.incr(key)
+        if count == 1:
+            r.expire(key, window)
+        return count <= limit
+    except:
+        return True
