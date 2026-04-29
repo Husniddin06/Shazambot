@@ -2,6 +2,7 @@ import os
 import shutil
 import uuid
 import logging
+import subprocess
 from typing import Callable, Optional, List, Dict
 from urllib.parse import urlparse
 import yt_dlp
@@ -22,6 +23,16 @@ MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 class DownloadError(Exception):
     pass
+
+def get_ffmpeg_path():
+    """Try to find ffmpeg in common locations or system path."""
+    for path in ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]:
+        try:
+            subprocess.run([path, "-version"], capture_output=True, check=True)
+            return path
+        except:
+            continue
+    return None
 
 def is_allowed_url(url: str) -> bool:
     if url.startswith("ytsearch"):
@@ -79,6 +90,8 @@ def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: O
     os.makedirs(work_dir, exist_ok=True)
     output_template = os.path.join(work_dir, "%(id)s.%(ext)s")
     
+    ffmpeg_path = get_ffmpeg_path()
+    
     opts = {
         "outtmpl": output_template,
         "quiet": True,
@@ -87,6 +100,9 @@ def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: O
         "restrictfilenames": True,
         "prefer_ffmpeg": True,
     }
+    
+    if ffmpeg_path:
+        opts["ffmpeg_location"] = ffmpeg_path
     
     if progress_hook:
         opts["progress_hooks"] = [progress_hook]
