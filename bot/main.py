@@ -51,7 +51,6 @@ def lang_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def main_keyboard(lang: str) -> InlineKeyboardMarkup:
-    # Premium ALWAYS at the bottom as requested by user
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t(lang, "btn_help"), callback_data="show_help"),
          InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="show_lang")],
@@ -225,29 +224,49 @@ async def handler(m: types.Message):
     if not lang: return
     
     text = m.text.strip()
-    want_mp3 = False
-    if text.lower().startswith("mp3 "):
-        want_mp3 = True
-        text = text[4:].strip()
     
+    # Check if it's a link
     if text.startswith(("http://", "https://")):
         if not is_allowed_url(text):
             return await m.answer(t(lang, "site_not_supported"))
         if not limits.can_download(m.from_user.id):
             return await m.answer(t(lang, "limit_reached"))
-        await _do_download(m.chat.id, m.from_user.id, text, want_mp3, lang)
-    else:
-        # Search logic
-        queries.record(text)
-        msg = await m.answer(f"🔍 '{text}'...")
-        # Simple search via yt-dlp
-        try:
-            file, work_dir = await asyncio.to_thread(download, f"ytsearch1:{text}", True, "192")
-            await m.answer_audio(types.FSInputFile(file))
-            await msg.delete()
-            if work_dir: shutil.rmtree(work_dir, ignore_errors=True)
-        except Exception as e:
-            await msg.edit_text(f"❌ {str(e)}")
+        
+        # For links, we ask if they want MP3 or Video
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎧 MP3", callback_data=f"dl_mp3_{text}"),
+             InlineKeyboardButton(text="🎬 Video", callback_data=f"dl_vid_{text}")]
+        ])
+        await m.answer("Tanlang / Выберите / Choose:", reply_markup=kb)
+        return
+
+    # If not a link, it's a music search
+    if not limits.can_download(m.from_user.id):
+        return await m.answer(t(lang, "limit_reached"))
+    
+    queries.record(text)
+    msg = await m.answer("⏳") # Show loading emoji as requested
+    
+    try:
+        # Search and download as MP3 only
+        file, work_dir = await asyncio.to_thread(download, f"ytsearch1:{text}", True, "192")
+        await m.answer_audio(types.FSInputFile(file))
+        await msg.delete() # Remove loading emoji
+        if work_dir: shutil.rmtree(work_dir, ignore_errors=True)
+        increment_downloads()
+        limits.record_download(m.from_user.id)
+    except Exception as e:
+        await msg.edit_text(f"❌ {str(e)}")
+
+@dp.callback_query(F.data.startswith("dl_"))
+async def download_callback(call: types.CallbackQuery):
+    lang = get_lang(call.from_user.id)
+    data = call.data.split("_")
+    want_mp3 = data[1] == "mp3"
+    url = "_".join(data[2:])
+    
+    await call.answer()
+    await _do_download(call.message.chat.id, call.from_user.id, url, want_mp3, lang, status_msg=call.message)
 
 async def run_bot():
     global BOT_USERNAME
