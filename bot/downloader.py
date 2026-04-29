@@ -71,8 +71,8 @@ def get_playlist_info(url: str) -> List[Dict]:
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if "entries" in info:
-                return [{"id": e["id"], "title": e["title"], "url": e["url"]} for e in info["entries"] if e]
+            if info and "entries" in info:
+                return [{"id": e["id"], "title": e["title"], "url": f"https://www.youtube.com/watch?v={e['id']}"} for e in info["entries"] if e]
     except Exception as e:
         logger.error(f"Playlist extraction error: {e}")
     return []
@@ -130,7 +130,6 @@ def download(
                 base, _ = os.path.splitext(filename)
                 filename = base + ".mp3"
             elif not os.path.exists(filename):
-                # Handle cases where extension might change after merge
                 base, _ = os.path.splitext(filename)
                 for ext in (".mp4", ".mkv", ".webm"):
                     if os.path.exists(base + ext):
@@ -144,7 +143,7 @@ def download(
         logger.exception("download error")
         raise DownloadError("Internal error.") from e
 
-    if not os.path.exists(filename):
+    if not filename or not os.path.exists(filename):
         shutil.rmtree(work_dir, ignore_errors=True)
         raise DownloadError("File was not created.")
 
