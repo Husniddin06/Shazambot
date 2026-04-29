@@ -24,16 +24,13 @@ class DownloadError(Exception):
     pass
 
 def is_allowed_url(url: str) -> bool:
-    # Allow internal YouTube search queries
     if url.startswith("ytsearch"):
         return True
-        
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return False
         host = (parsed.hostname or "").lower()
-        # Check if any allowed host is part of the current hostname
         return any(h in host for h in ALLOWED_HOSTS)
     except Exception:
         return False
@@ -83,8 +80,12 @@ def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: O
     output_template = os.path.join(work_dir, "%(id)s.%(ext)s")
     
     opts = {
-        "outtmpl": output_template, "quiet": True, "no_warnings": True,
-        "noplaylist": True, "restrictfilenames": True,
+        "outtmpl": output_template,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "restrictfilenames": True,
+        "prefer_ffmpeg": True,
     }
     
     if progress_hook:
@@ -93,7 +94,11 @@ def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: O
     if mp3:
         opts.update({
             "format": "bestaudio/best",
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": quality or "192"}],
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": quality or "192",
+            }],
         })
     else:
         opts["format"] = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
