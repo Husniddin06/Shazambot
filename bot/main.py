@@ -11,8 +11,10 @@ from aiogram.types import (
 )
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+
+# Absolute imports to avoid confusion
 from config import BOT_TOKEN, ADMIN_ID, PREMIUM_DAYS
-from bot.downloader import download, is_allowed_url, DownloadError, is_youtube_url, extract_youtube_id, get_playlist_info
+import bot.downloader as dl
 from bot.rate_limit import check_limit
 from bot.ai import ask_ai
 from bot.music import recommend_music
@@ -21,16 +23,11 @@ from utils.premium import is_premium, set_premium, track_user, increment_downloa
 from utils.file_cache import get_file_id, set_file_id
 from utils import history, favorites, limits, quality as quality_mod, bans, queries
 
-# Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logging.getLogger("aiogram").setLevel(logging.WARNING)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN .env faylida ko'rsatilmagan!")
+    raise RuntimeError("BOT_TOKEN is missing!")
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -71,45 +68,6 @@ async def start(m: types.Message):
     premium_label = " 👑" if is_premium(m.from_user.id) else ""
     await m.answer(f"{t(lang, 'start_title')}{premium_label}\n\n{t(lang, 'start_body')}", reply_markup=main_keyboard(lang))
 
-# --- Handlers for Menu Buttons ---
-@dp.callback_query(F.data == "show_profile")
-async def show_profile(call: types.CallbackQuery):
-    lang = get_lang(call.from_user.id)
-    premium = "✅" if is_premium(call.from_user.id) else "❌"
-    rem = limits.remaining(call.from_user.id)
-    await call.message.answer(f"👤 <b>Profil:</b>\n\nID: <code>{call.from_user.id}</code>\nPremium: {premium}\nBugungi limit: {rem}")
-    await call.answer()
-
-@dp.callback_query(F.data == "show_history")
-async def show_history(call: types.CallbackQuery):
-    lang = get_lang(call.from_user.id)
-    hist = history.get(call.from_user.id)
-    if not hist: return await call.answer("Tarix bo'sh", show_alert=True)
-    text = "📜 <b>Oxirgi yuklashlar:</b>\n\n"
-    for i, item in enumerate(hist[:10], 1):
-        text += f"{i}. {item['title']}\n"
-    await call.message.answer(text)
-    await call.answer()
-
-@dp.callback_query(F.data == "show_quality")
-async def show_quality(call: types.CallbackQuery):
-    lang = get_lang(call.from_user.id)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="128 kbps", callback_data="set_q_128"),
-         InlineKeyboardButton(text="192 kbps", callback_data="set_q_192"),
-         InlineKeyboardButton(text="320 kbps (Premium)", callback_data="set_q_320")]
-    ])
-    await call.message.answer("MP3 sifatini tanlang:", reply_markup=kb)
-    await call.answer()
-
-@dp.callback_query(F.data.startswith("set_q_"))
-async def set_quality(call: types.CallbackQuery):
-    q = call.data.split("_")[-1]
-    if q == "320" and not is_premium(call.from_user.id):
-        return await call.answer("320 kbps faqat Premium uchun!", show_alert=True)
-    quality_mod.set_(call.from_user.id, q)
-    await call.answer(f"Sifat {q} kbps ga o'zgartirildi")
-
 # --- Progress Hook ---
 class _ProgressUpdater:
     def __init__(self, bot, chat_id, msg_id, lang):
@@ -136,7 +94,7 @@ class _ProgressUpdater:
         except: pass
 
 async def _do_download(chat_id, user_id, url, want_mp3, lang, status_msg=None):
-    video_id = extract_youtube_id(url) if is_youtube_url(url) else None
+    video_id = dl.extract_youtube_id(url) if dl.is_youtube_url(url) else None
     if status_msg is None: status_msg = await bot.send_message(chat_id, t(lang, "downloading"))
     
     if video_id:
@@ -154,7 +112,7 @@ async def _do_download(chat_id, user_id, url, want_mp3, lang, status_msg=None):
     try:
         q = quality_mod.get(user_id)
         progress = _ProgressUpdater(bot, chat_id, status_msg.message_id, lang)
-        file, work_dir = await asyncio.to_thread(download, url, want_mp3, q, progress.hook)
+        file, work_dir = await asyncio.to_thread(dl.download, url, want_mp3, q, progress.hook)
         if want_mp3:
             sent = await bot.send_audio(chat_id, types.FSInputFile(file))
             file_id = sent.audio.file_id if sent.audio else None
@@ -176,14 +134,14 @@ async def handler(m: types.Message):
     text = m.text.strip()
 
     if text.startswith(("http://", "https://")):
-        if not is_allowed_url(text): return await m.answer(t(lang, "site_not_supported"))
+        if not dl.is_allowed_url(text): return await m.answer(t(lang, "site_not_supported"))
         if not limits.can_download(m.from_user.id): return await m.answer(t(lang, "limit_reached"))
         
-        if "list=" in text and is_youtube_url(text):
+        if "list=" in text and dl.is_youtube_url(text):
             msg = await m.answer("⏳")
-            items = await asyncio.to_thread(get_playlist_info, text)
-            if not items: return await msg.edit_text("❌ Playlist bo'sh yoki xato.")
-            await msg.edit_text(f"📂 Playlist: <b>{len(items)}</b> ta video topildi.")
+            items = await asyncio.to_thread(dl.get_playlist_info, text)
+            if not items: return await msg.edit_text("❌ Playlist error.")
+            await msg.edit_text(f"📂 Playlist: <b>{len(items)}</b> videos.")
             for item in items[:10]:
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🎧 MP3", callback_data=f"dl_mp3_{item['url']}"),
@@ -207,7 +165,7 @@ async def handler(m: types.Message):
     queries.record(text)
     msg = await m.answer("⏳")
     try:
-        file, work_dir = await asyncio.to_thread(download, f"ytsearch1:{text}", True, "192")
+        file, work_dir = await asyncio.to_thread(dl.download, f"ytsearch1:{text}", True, "192")
         await m.answer_audio(types.FSInputFile(file))
         await msg.delete()
         if work_dir: shutil.rmtree(work_dir, ignore_errors=True)
