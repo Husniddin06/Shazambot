@@ -71,6 +71,45 @@ async def start(m: types.Message):
     premium_label = " 👑" if is_premium(m.from_user.id) else ""
     await m.answer(f"{t(lang, 'start_title')}{premium_label}\n\n{t(lang, 'start_body')}", reply_markup=main_keyboard(lang))
 
+# --- Handlers for Menu Buttons ---
+@dp.callback_query(F.data == "show_profile")
+async def show_profile(call: types.CallbackQuery):
+    lang = get_lang(call.from_user.id)
+    premium = "✅" if is_premium(call.from_user.id) else "❌"
+    rem = limits.remaining(call.from_user.id)
+    await call.message.answer(f"👤 <b>Profil:</b>\n\nID: <code>{call.from_user.id}</code>\nPremium: {premium}\nBugungi limit: {rem}")
+    await call.answer()
+
+@dp.callback_query(F.data == "show_history")
+async def show_history(call: types.CallbackQuery):
+    lang = get_lang(call.from_user.id)
+    hist = history.get(call.from_user.id)
+    if not hist: return await call.answer("Tarix bo'sh", show_alert=True)
+    text = "📜 <b>Oxirgi yuklashlar:</b>\n\n"
+    for i, item in enumerate(hist[:10], 1):
+        text += f"{i}. {item['title']}\n"
+    await call.message.answer(text)
+    await call.answer()
+
+@dp.callback_query(F.data == "show_quality")
+async def show_quality(call: types.CallbackQuery):
+    lang = get_lang(call.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="128 kbps", callback_data="set_q_128"),
+         InlineKeyboardButton(text="192 kbps", callback_data="set_q_192"),
+         InlineKeyboardButton(text="320 kbps (Premium)", callback_data="set_q_320")]
+    ])
+    await call.message.answer("MP3 sifatini tanlang:", reply_markup=kb)
+    await call.answer()
+
+@dp.callback_query(F.data.startswith("set_q_"))
+async def set_quality(call: types.CallbackQuery):
+    q = call.data.split("_")[-1]
+    if q == "320" and not is_premium(call.from_user.id):
+        return await call.answer("320 kbps faqat Premium uchun!", show_alert=True)
+    quality_mod.set_(call.from_user.id, q)
+    await call.answer(f"Sifat {q} kbps ga o'zgartirildi")
+
 # --- Progress Hook ---
 class _ProgressUpdater:
     def __init__(self, bot, chat_id, msg_id, lang):
@@ -140,13 +179,12 @@ async def handler(m: types.Message):
         if not is_allowed_url(text): return await m.answer(t(lang, "site_not_supported"))
         if not limits.can_download(m.from_user.id): return await m.answer(t(lang, "limit_reached"))
         
-        # Playlist detection
         if "list=" in text and is_youtube_url(text):
-            msg = await m.answer("📂 Playlist aniqlanmoqda...")
+            msg = await m.answer("⏳")
             items = await asyncio.to_thread(get_playlist_info, text)
             if not items: return await msg.edit_text("❌ Playlist bo'sh yoki xato.")
-            await msg.edit_text(f"📂 Playlist: <b>{len(items)}</b> ta video topildi.\nYuklash uchun birini tanlang:")
-            for item in items[:10]: # Limit to 10 for safety
+            await msg.edit_text(f"📂 Playlist: <b>{len(items)}</b> ta video topildi.")
+            for item in items[:10]:
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🎧 MP3", callback_data=f"dl_mp3_{item['url']}"),
                     InlineKeyboardButton(text="🎬 Video", callback_data=f"dl_vid_{item['url']}")
@@ -154,12 +192,10 @@ async def handler(m: types.Message):
                 await m.answer(f"🎵 {item['title']}", reply_markup=kb)
             return
 
-        # Auto-detect for TikTok/Instagram
         if any(x in text for x in ["tiktok.com", "instagram.com/reels", "instagram.com/p/"]):
             await _do_download(m.chat.id, m.from_user.id, text, False, lang)
             return
 
-        # YouTube/Other: Ask
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🎧 MP3", callback_data=f"dl_mp3_{text}"),
             InlineKeyboardButton(text="🎬 Video", callback_data=f"dl_vid_{text}")
@@ -167,7 +203,6 @@ async def handler(m: types.Message):
         await m.answer("Tanlang / Выберите / Choose:", reply_markup=kb)
         return
 
-    # Music Search
     if not limits.can_download(m.from_user.id): return await m.answer(t(lang, "limit_reached"))
     queries.record(text)
     msg = await m.answer("⏳")
@@ -192,6 +227,29 @@ async def set_lang_callback(call: types.CallbackQuery):
     set_lang(call.from_user.id, lang)
     await call.answer(t(lang, "lang_set"))
     await call.message.edit_text(f"{t(lang, 'start_title')}\n\n{t(lang, 'start_body')}", reply_markup=main_keyboard(lang))
+
+@dp.callback_query(F.data == "premium_menu")
+async def premium_cb(call: types.CallbackQuery):
+    lang = get_lang(call.from_user.id)
+    text = f"{t(lang, 'premium_title')}\n\n{t(lang, 'premium_body')}{t(lang, 'premium_price', days=PREMIUM_DAYS)}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(lang, "premium_pay_btn"), callback_data="pay_premium")]])
+    await call.message.answer(text, reply_markup=kb)
+    await call.answer()
+
+@dp.callback_query(F.data == "pay_premium")
+async def pay_premium(call: types.CallbackQuery):
+    lang = get_lang(call.from_user.id)
+    await bot.send_invoice(chat_id=call.from_user.id, title=t(lang, "premium_invoice_title"), description=t(lang, "premium_invoice_desc"), payload="premium_subscription", provider_token="", currency="XTR", prices=[LabeledPrice(label="Premium", amount=100)])
+    await call.answer()
+
+@dp.pre_checkout_query()
+async def pre_checkout(query: PreCheckoutQuery):
+    await query.answer(ok=True)
+
+@dp.message(F.successful_payment)
+async def success_payment(m: types.Message):
+    set_premium(m.from_user.id, days=PREMIUM_DAYS)
+    await m.answer("✅ Premium faollashtirildi!")
 
 async def run_bot():
     await dp.start_polling(bot)
