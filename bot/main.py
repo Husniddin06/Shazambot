@@ -2,20 +2,28 @@ import asyncio
 import logging
 import os
 import shutil
+import time
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     LabeledPrice, PreCheckoutQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
+    InlineQueryResultArticle, InputTextMessageContent,
+    InlineQueryResultCachedAudio
 )
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from config import BOT_TOKEN, ADMIN_ID, PREMIUM_DAYS
-from bot.downloader import download, is_allowed_url, DownloadError
+from bot.downloader import download, is_allowed_url, DownloadError, is_youtube_url, extract_youtube_id
 from bot.rate_limit import check_limit
 from bot.ai import ask_ai
 from bot.music import recommend_music
+from bot.i18n import t, get_lang, set_lang, has_lang
+from bot.lyrics import fetch_for_youtube_title
+from bot.charts import get_top
 from utils.premium import is_premium, set_premium, track_user, increment_downloads, get_stats
+from utils.file_cache import get_file_id, set_file_id
+from utils import history, favorites, limits, quality as quality_mod, bans, queries
 
 # Logging setup
 logging.basicConfig(
@@ -30,83 +38,97 @@ if not BOT_TOKEN:
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
+BOT_USERNAME = None
 
 def split_message(text: str, limit: int = 4000) -> list[str]:
     return [text[i:i + limit] for i in range(0, len(text), limit)] or [""]
 
+def lang_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang_ru"),
+         InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="set_lang_uz"),
+         InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en")]
+    ])
+
+def main_keyboard(lang: str) -> InlineKeyboardMarkup:
+    # Premium ALWAYS at the bottom as requested by user
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t(lang, "btn_help"), callback_data="show_help"),
+         InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="show_lang")],
+        [InlineKeyboardButton(text=t(lang, "btn_profile"), callback_data="show_profile"),
+         InlineKeyboardButton(text=t(lang, "btn_quality"), callback_data="show_quality")],
+        [InlineKeyboardButton(text=t(lang, "btn_history"), callback_data="show_history"),
+         InlineKeyboardButton(text=t(lang, "btn_favorites"), callback_data="show_favorites"),
+         InlineKeyboardButton(text=t(lang, "btn_top"), callback_data="show_top")],
+        [InlineKeyboardButton(text=t(lang, "btn_premium"), callback_data="premium_menu")],
+    ])
+
+async def _guard(m: types.Message) -> str | None:
+    if not m.from_user: return None
+    if bans.is_banned(m.from_user.id):
+        try: await m.answer(t(get_lang(m.from_user.id), "you_are_banned"))
+        except: pass
+        return None
+    if not has_lang(m.from_user.id):
+        await m.answer("Выберите язык / Tilni tanlang / Choose language:", reply_markup=lang_keyboard())
+        return None
+    track_user(m.from_user.id)
+    return get_lang(m.from_user.id)
+
 @dp.message(Command("start"))
 async def start(m: types.Message):
-    if m.from_user:
-        track_user(m.from_user.id)
+    lang = await _guard(m)
+    if not lang: return
     
-    premium_label = " 👑" if (m.from_user and is_premium(m.from_user.id)) else ""
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌟 Premium Menu", callback_data="premium_menu")],
-        [InlineKeyboardButton(text="📖 Yordam", callback_data="show_help")],
-    ])
+    premium_label = " 👑" if is_premium(m.from_user.id) else ""
     await m.answer(
-        f"🔥 <b>MAX BOT ACTIVE</b>{premium_label}\n\n"
-        "Men orqali media yuklashingiz, AI bilan gaplashishingiz "
-        "va musiqa topishingiz mumkin!",
-        reply_markup=kb,
+        f"{t(lang, 'start_title')}{premium_label}\n\n{t(lang, 'start_body')}",
+        reply_markup=main_keyboard(lang),
     )
 
-@dp.message(Command("help"))
-async def help_cmd(m: types.Message):
-    await _send_help(m)
+@dp.callback_query(F.data.startswith("set_lang_"))
+async def set_lang_cb(call: types.CallbackQuery):
+    lang = call.data.split("_")[-1]
+    set_lang(call.from_user.id, lang)
+    await call.answer(t(lang, "lang_set"))
+    await call.message.edit_text(
+        f"{t(lang, 'start_title')}\n\n{t(lang, 'start_body')}",
+        reply_markup=main_keyboard(lang)
+    )
+
+@dp.callback_query(F.data == "show_lang")
+async def show_lang_cb(call: types.CallbackQuery):
+    await call.answer()
+    await call.message.edit_text("Выберите язык / Tilni tanlang / Choose language:", reply_markup=lang_keyboard())
 
 @dp.callback_query(F.data == "show_help")
 async def help_cb(call: types.CallbackQuery):
     await call.answer()
-    if call.message:
-        await _send_help(call.message)
-
-async def _send_help(m: types.Message):
-    await m.answer(
-        "📖 <b>Komandalar</b>\n\n"
-        "/start — botni ishga tushirish\n"
-        "/ai &lt;savol&gt; — AI bilan suhbat\n"
-        "/music &lt;kayfiyat&gt; — musiqa tavsiya\n"
-        "/premium — Premium obuna\n"
-        "/help — yordam\n\n"
-        "🔗 YouTube / Instagram / TikTok / Twitter / Facebook / SoundCloud "
-        "havolasini yuboring — yuklab beraman.\n\n"
-        "🎵 Audio (mp3) olish uchun havoladan oldin <code>mp3</code> deb yozing.\n"
-        "Masalan: <code>mp3 https://youtu.be/...</code>"
-    )
-
-@dp.message(Command("premium"))
-async def premium_cmd(m: types.Message):
-    await _show_premium(m)
+    lang = get_lang(call.from_user.id)
+    await call.message.answer(t(lang, "help"), reply_markup=main_keyboard(lang))
 
 @dp.callback_query(F.data == "premium_menu")
 async def premium_cb(call: types.CallbackQuery):
     await call.answer()
-    if call.message:
-        await _show_premium(call.message)
-
-async def _show_premium(message: types.Message):
+    lang = get_lang(call.from_user.id)
     text = (
-        "💎 <b>MAX BOT PREMIUM</b>\n\n"
-        "Premium bilan sizda quyidagi imkoniyatlar bo'ladi:\n"
-        "✅ Cheksiz yuklab olish\n"
-        "✅ Reklamasiz foydalanish\n"
-        "✅ Yuqori tezlik\n"
-        "✅ AI bilan cheksiz suhbat\n\n"
-        f"💰 <b>Narxi: 100 Stars / {PREMIUM_DAYS} kun</b>"
+        f"{t(lang, 'premium_title')}\n\n"
+        f"{t(lang, 'premium_body')}"
+        f"{t(lang, 'premium_price', days=PREMIUM_DAYS)}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 100 Stars bilan to'lash", callback_data="pay_premium")]
+        [InlineKeyboardButton(text=t(lang, "premium_pay_btn"), callback_data="pay_premium")]
     ])
-    await message.answer(text, reply_markup=kb)
+    await call.message.answer(text, reply_markup=kb)
 
 @dp.callback_query(F.data == "pay_premium")
 async def pay_premium(call: types.CallbackQuery):
     await call.answer()
+    lang = get_lang(call.from_user.id)
     await bot.send_invoice(
         chat_id=call.from_user.id,
-        title="MAX BOT PREMIUM",
-        description="Botning barcha imkoniyatlaridan cheksiz foydalanish uchun Premium obuna.",
+        title=t(lang, "premium_invoice_title"),
+        description=t(lang, "premium_invoice_desc"),
         payload="premium_subscription",
         provider_token="",
         currency="XTR",
@@ -119,147 +141,120 @@ async def pre_checkout(query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def success_payment(m: types.Message):
-    if m.from_user:
-        set_premium(m.from_user.id, days=PREMIUM_DAYS)
-    await m.answer(
-        "✨ <b>TABRIKLAYMIZ!</b> ✨\n\n"
-        f"Siz endi <b>PREMIUM</b> foydalanuvchisiz ({PREMIUM_DAYS} kun)! "
-        "Barcha cheklovlar olib tashlandi. 🚀"
-    )
+    set_premium(m.from_user.id, days=PREMIUM_DAYS)
+    lang = get_lang(m.from_user.id)
+    await m.answer(t(lang, "premium_success", days=PREMIUM_DAYS))
 
-@dp.message(Command("ai"))
-async def ai_cmd(m: types.Message, command: CommandObject):
-    if not m.from_user: return
-    track_user(m.from_user.id)
-    text = (command.args or "").strip()
-    if not text:
-        return await m.answer("AI ga savol bering. Masalan: <code>/ai Salom</code>")
-    
-    if not await check_limit(m.from_user.id):
-        return await m.answer("⛔ Juda tez-tez so'rov! Bir oz kuting yoki /premium oling.")
-    
-    msg = await m.answer("🤖 AI o'ylamoqda...")
-    response = await asyncio.to_thread(ask_ai, text)
-    chunks = split_message(response)
-    await msg.edit_text(chunks[0])
-    for extra in chunks[1:]:
-        await m.answer(extra)
-
-@dp.message(Command("music"))
-async def music_cmd(m: types.Message, command: CommandObject):
-    if not m.from_user: return
-    track_user(m.from_user.id)
-    mood = (command.args or "").strip()
-    if not mood:
-        return await m.answer("Kayfiyatingizni yozing. Masalan: <code>/music xursand</code>")
-    
-    if not await check_limit(m.from_user.id):
-        return await m.answer("⛔ Juda tez-tez so'rov! Bir oz kuting yoki /premium oling.")
-    
-    msg = await m.answer("🎵 Musiqa qidirilmoqda...")
-    response = await asyncio.to_thread(recommend_music, mood)
-    await msg.edit_text(response)
-
-@dp.message(Command("stats"))
-async def stats_cmd(m: types.Message):
-    if not m.from_user or m.from_user.id != ADMIN_ID:
-        return
-    s = get_stats()
-    await m.answer(
-        "📊 <b>Statistika</b>\n\n"
-        f"👤 Foydalanuvchilar: <b>{s['users']}</b>\n"
-        f"👑 Premium: <b>{s['premium']}</b>\n"
-        f"⬇️ Yuklab olishlar: <b>{s['downloads']}</b>"
-    )
-
-@dp.message(Command("broadcast"))
-async def broadcast_cmd(m: types.Message, command: CommandObject):
-    if not m.from_user or m.from_user.id != ADMIN_ID:
-        return
-    text = (command.args or "").strip()
-    if not text:
-        return await m.answer("Foydalanish: <code>/broadcast &lt;matn&gt;</code>")
-    
-    from utils.redis_cache import r
-    if not r:
-        return await m.answer("Redis ulanmagan, broadcast ishlamaydi.")
-    
-    sent, failed = 0, 0
-    for uid in r.smembers("users:all"):
+# --- Progress Hook ---
+class _ProgressUpdater:
+    def __init__(self, bot, chat_id, msg_id, lang):
+        self.bot = bot; self.chat_id = chat_id
+        self.msg_id = msg_id; self.lang = lang
+        self.last_update = 0.0; self.last_percent = -1
+        self.loop = asyncio.get_event_loop()
+    def hook(self, d: dict):
         try:
-            await bot.send_message(int(uid), text)
-            sent += 1
-        except Exception:
-            failed += 1
-        await asyncio.sleep(0.05)
-    await m.answer(f"✅ Yuborildi: {sent}\n❌ Xato: {failed}")
+            status = d.get("status")
+            if status == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                done = d.get("downloaded_bytes") or 0
+                if total <= 0: return
+                pct = int(done * 100 / total)
+                now = time.time()
+                if pct == self.last_percent or now - self.last_update < 2.0: return
+                self.last_percent = pct; self.last_update = now
+                asyncio.run_coroutine_threadsafe(self._safe_edit(t(self.lang, "download_progress", percent=pct)), self.loop)
+            elif status == "finished":
+                asyncio.run_coroutine_threadsafe(self._safe_edit(t(self.lang, "download_uploading")), self.loop)
+        except: pass
+    async def _safe_edit(self, text: str):
+        try: await self.bot.edit_message_text(chat_id=self.chat_id, message_id=self.msg_id, text=text)
+        except: pass
 
-@dp.message(Command("grant"))
-async def grant_cmd(m: types.Message, command: CommandObject):
-    if not m.from_user or m.from_user.id != ADMIN_ID:
-        return
-    args = (command.args or "").split()
-    if not args:
-        return await m.answer("Foydalanish: <code>/grant &lt;user_id&gt; [days]</code>")
-    try:
-        target = int(args[0])
-        days = int(args[1]) if len(args) > 1 else PREMIUM_DAYS
-    except ValueError:
-        return await m.answer("Noto'g'ri argument.")
+async def _do_download(chat_id, user_id, url, want_mp3, lang, status_msg=None, video_id=None):
+    if not video_id and is_youtube_url(url): video_id = extract_youtube_id(url)
+    if status_msg is None: status_msg = await bot.send_message(chat_id, t(lang, "downloading"))
     
-    set_premium(target, days=days)
-    await m.answer(f"✅ {target} ga {days} kun premium berildi.")
+    if video_id:
+        cached = get_file_id(video_id, want_mp3)
+        if cached:
+            try:
+                if want_mp3: await bot.send_audio(chat_id, cached, caption=t(lang, "from_cache"))
+                else: await bot.send_video(chat_id, cached, caption=t(lang, "from_cache"))
+                try: await status_msg.delete()
+                except: pass
+                history.add(user_id, video_id, video_id, want_mp3)
+                limits.record_download(user_id)
+                increment_downloads()
+                return
+            except: pass
+
+    work_dir = None
+    try:
+        q = quality_mod.get(user_id)
+        if q == "320" and not is_premium(user_id): q = "192"
+        progress = _ProgressUpdater(bot, chat_id, status_msg.message_id, lang)
+        file, work_dir = await asyncio.to_thread(download, url, want_mp3, q, progress.hook)
+        
+        if want_mp3:
+            sent = await bot.send_audio(chat_id, types.FSInputFile(file))
+            file_id = sent.audio.file_id if sent.audio else None
+        else:
+            sent = await bot.send_video(chat_id, types.FSInputFile(file))
+            file_id = sent.video.file_id if sent.video else None
+        
+        try: await status_msg.delete()
+        except: pass
+        if video_id and file_id: set_file_id(video_id, want_mp3, file_id)
+        if video_id: history.add(user_id, video_id, video_id, want_mp3)
+        limits.record_download(user_id)
+        increment_downloads()
+    except DownloadError as e:
+        try: await status_msg.edit_text(t(lang, "download_failed", error=str(e)))
+        except: await bot.send_message(chat_id, t(lang, "download_failed", error=str(e)))
+    except Exception:
+        logger.exception("download error")
+        try: await status_msg.edit_text(t(lang, "unexpected_error"))
+        except: await bot.send_message(chat_id, t(lang, "unexpected_error"))
+    finally:
+        if work_dir and os.path.exists(work_dir): shutil.rmtree(work_dir, ignore_errors=True)
 
 @dp.message()
-async def url_handler(m: types.Message):
-    if not m.text or not m.from_user:
-        return
-    track_user(m.from_user.id)
-    text = m.text.strip()
+async def handler(m: types.Message):
+    lang = await _guard(m)
+    if not lang: return
     
+    text = m.text.strip()
     want_mp3 = False
     if text.lower().startswith("mp3 "):
         want_mp3 = True
         text = text[4:].strip()
     
-    if not text.startswith(("http://", "https://")):
-        return
-    
-    if not is_allowed_url(text):
-        return await m.answer(
-            "❌ Bu sayt qo'llab-quvvatlanmaydi.\n"
-            "Qo'llab-quvvatlanadigan: YouTube, Instagram, TikTok, Twitter/X, "
-            "Facebook, SoundCloud."
-        )
-    
-    if not await check_limit(m.from_user.id):
-        return await m.answer("⛔ Juda tez-tez so'rov! Bir oz kuting yoki /premium oling.")
-    
-    msg = await m.answer("⏳ <b>Yuklanmoqda...</b>")
-    work_dir = None
-    try:
-        file, work_dir = await asyncio.to_thread(download, text, want_mp3)
-        if want_mp3:
+    if text.startswith(("http://", "https://")):
+        if not is_allowed_url(text):
+            return await m.answer(t(lang, "site_not_supported"))
+        if not limits.can_download(m.from_user.id):
+            return await m.answer(t(lang, "limit_reached"))
+        await _do_download(m.chat.id, m.from_user.id, text, want_mp3, lang)
+    else:
+        # Search logic
+        queries.record(text)
+        msg = await m.answer(f"🔍 '{text}'...")
+        # Simple search via yt-dlp
+        try:
+            file, work_dir = await asyncio.to_thread(download, f"ytsearch1:{text}", True, "192")
             await m.answer_audio(types.FSInputFile(file))
-        else:
-            await m.answer_video(types.FSInputFile(file))
-        await msg.delete()
-        increment_downloads()
-    except DownloadError as e:
-        await msg.edit_text(f"❌ {e}")
-    except Exception as e:
-        logger.exception("url_handler xatosi")
-        await msg.edit_text("❌ Kutilmagan xatolik yuz berdi.")
-    finally:
-        if work_dir and os.path.exists(work_dir):
-            shutil.rmtree(work_dir, ignore_errors=True)
+            await msg.delete()
+            if work_dir: shutil.rmtree(work_dir, ignore_errors=True)
+        except Exception as e:
+            await msg.edit_text(f"❌ {str(e)}")
 
 async def run_bot():
-    logger.info("Bot ishga tushdi.")
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+    global BOT_USERNAME
+    me = await bot.get_me()
+    BOT_USERNAME = me.username
+    logger.info(f"Bot started as @{BOT_USERNAME}")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(run_bot())
