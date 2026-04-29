@@ -1,6 +1,6 @@
 TRANSLATIONS = {
     "ru": {
-        "choose_lang": "Выберите язык / Choose language:",
+        "choose_lang": "Выберите язык / Tilni tanlang / Choose language:",
         "lang_set": "✅ Язык установлен: Русский",
         "lang_btn_ru": "🇷🇺 Русский",
         "lang_btn_en": "🇬🇧 English",
@@ -13,14 +13,17 @@ TRANSLATIONS = {
         "btn_favorites": "⭐ Избранное",
         "btn_top": "🔥 Топ",
         "btn_quality": "🎚️ Качество",
-        "start_title": "🔥 <b>MAX BOT АКТИВЕН</b>",
+        "start_title": "👋 Привет!",
         "start_body": (
-            "Через меня вы можете:\n"
-            "🎵 Найти и скачать музыку — просто напишите название песни или исполнителя\n"
-            "🎤 Распознать песню — отправьте голосовое или аудио-сообщение (Shazam)\n"
-            "🔗 Скачать видео по ссылке (YouTube, Instagram, TikTok, Twitter/X, Facebook, SoundCloud)\n"
-            "🤖 Пообщаться с ИИ — команда /ai\n"
-            "📜 /history · ⭐ /fav · 🔥 /top · 👤 /profile · 🎚️ /quality · 📝 /lyrics"
+            "Я помогу найти музыку 🎶, отправь мне что-то из этого:\n\n"
+            "🎵 Название песни или исполнителя\n"
+            "🔤 Слова из песни\n"
+            "🎙 Голосовое сообщение с музыкой\n"
+            "📹 Видео с музыкой\n"
+            "🔊 Аудиозапись\n"
+            "🎥 Видеосообщение с музыкой\n"
+            "🔗 Ссылку на видео в Instagram, Tik-Tok, YouTube и другие сайты\n\n"
+            "🕺 Наслаждайся!"
         ),
         "help": (
             "📖 <b>Команды</b>\n\n"
@@ -62,6 +65,8 @@ TRANSLATIONS = {
         "inline_uncached_desc": "Нажмите, чтобы отправить через бота",
         "inline_open_bot": "Открыть бота",
         "you_are_banned": "🚫 Вы заблокированы.",
+        "site_not_supported": "❌ Этот сайт не поддерживается.",
+        "limit_reached": "⛔ Лимит загрузок исчерпан! Подождите до завтра или купите /premium.",
     },
     "uz": {
         "choose_lang": "Tilni tanlang / Choose language:",
@@ -77,14 +82,17 @@ TRANSLATIONS = {
         "btn_favorites": "⭐ Sevimlilar",
         "btn_top": "🔥 Top",
         "btn_quality": "🎚️ Sifat",
-        "start_title": "🔥 <b>MAX BOT FAOL</b>",
+        "start_title": "👋 Salom!",
         "start_body": (
-            "Men orqali siz:\n"
-            "🎵 Musiqa topishingiz va yuklashingiz mumkin — shunchaki nomini yozing\n"
-            "🎤 Qo'shiqni aniqlashingiz mumkin — ovozli xabar yuboring (Shazam)\n"
-            "🔗 Link orqali yuklashingiz mumkin (YouTube, Instagram, TikTok, Twitter/X, Facebook, SoundCloud)\n"
-            "🤖 AI bilan gaplashishingiz mumkin — /ai buyrug'i\n"
-            "📜 /history · ⭐ /fav · 🔥 /top · 👤 /profile · 🎚️ /quality · 📝 /lyrics"
+            "Men sizga musiqa topishga yordam beraman 🎶 menga quyidagilardan birini yuboring:\n\n"
+            "🎵 Qo'shiq yoki ijrochi nomi\n"
+            "🔤 Qo'shiq matni\n"
+            "🎙 Musiqa bilan ovozli xabar\n"
+            "📹 Musiqa bilan video\n"
+            "🔊 Audioyozuv\n"
+            "🎥 Musiqa bilan videoxabar\n"
+            "🔗 Instagram, Tik-Tok, YouTube va boshqa saytlarga video havola\n\n"
+            "🕺 Rohatlaning!"
         ),
         "help": (
             "📖 <b>Buyruqlar</b>\n\n"
@@ -126,6 +134,8 @@ TRANSLATIONS = {
         "inline_uncached_desc": "Bot orqali yuborish uchun bosing",
         "inline_open_bot": "Botni ochish",
         "you_are_banned": "🚫 Siz bloklangansiz.",
+        "site_not_supported": "❌ Bu sayt qo'llab-quvvatlanmaydi.",
+        "limit_reached": "⛔ Yuklash limiti tugadi! Ertagacha kuting yoki /premium oling.",
     },
     "en": {
         "choose_lang": "Choose language:",
@@ -141,14 +151,17 @@ TRANSLATIONS = {
         "btn_favorites": "⭐ Favorites",
         "btn_top": "🔥 Top",
         "btn_quality": "🎚️ Quality",
-        "start_title": "🔥 <b>MAX BOT ACTIVE</b>",
+        "start_title": "👋 Hi!",
         "start_body": (
-            "Through me you can:\n"
-            "🎵 Find and download music — just type the song or artist name\n"
-            "🎤 Identify a song — send a voice or audio message (Shazam)\n"
-            "🔗 Download video by link (YouTube, Instagram, TikTok, Twitter/X, Facebook, SoundCloud)\n"
-            "🤖 Chat with AI — /ai command\n"
-            "📜 /history · ⭐ /fav · 🔥 /top · 👤 /profile · 🎚️ /quality · 📝 /lyrics"
+            "I'll help you find music 🎶 send me some of this:\n\n"
+            "🎵 Song title or artist\n"
+            "🔤 Lyrics from the song\n"
+            "🎙 Voice message with music\n"
+            "📹 Video with music\n"
+            "🔊 Audio recording\n"
+            "🎥 Video message with music\n"
+            "🔗 Link the video to Instagram, Tik-Tok, YouTube and other sites\n\n"
+            "🕺 Enjoy!"
         ),
         "help": (
             "📖 <b>Commands</b>\n\n"
@@ -190,6 +203,8 @@ TRANSLATIONS = {
         "inline_uncached_desc": "Click to send via bot",
         "inline_open_bot": "Open Bot",
         "you_are_banned": "🚫 You are banned.",
+        "site_not_supported": "❌ Site not supported.",
+        "limit_reached": "⛔ Download limit reached! Wait until tomorrow or get /premium.",
     }
 }
 
@@ -202,16 +217,21 @@ def t(lang: str, key: str, **kwargs) -> str:
 def get_lang(user_id: int) -> str:
     from utils.redis_cache import r
     if r:
-        return r.get(f"lang:{user_id}") or "ru"
+        try:
+            v = r.get(f"lang:{user_id}")
+            if v: return v.decode() if isinstance(v, bytes) else v
+        except: pass
     return "ru"
 
 def set_lang(user_id: int, lang: str):
     from utils.redis_cache import r
     if r:
-        r.set(f"lang:{user_id}", lang)
+        try: r.set(f"lang:{user_id}", lang)
+        except: pass
 
 def has_lang(user_id: int) -> bool:
     from utils.redis_cache import r
     if r:
-        return r.exists(f"lang:{user_id}")
+        try: return bool(r.exists(f"lang:{user_id}"))
+        except: pass
     return False
