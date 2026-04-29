@@ -24,11 +24,16 @@ class DownloadError(Exception):
     pass
 
 def is_allowed_url(url: str) -> bool:
+    # Allow internal YouTube search queries
+    if url.startswith("ytsearch"):
+        return True
+        
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return False
         host = (parsed.hostname or "").lower()
+        # Check if any allowed host is part of the current hostname
         return any(h in host for h in ALLOWED_HOSTS)
     except Exception:
         return False
@@ -72,15 +77,19 @@ def get_playlist_info(url: str) -> List[Dict]:
 def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: Optional[Callable] = None) -> tuple[str, str]:
     if not is_allowed_url(url):
         raise DownloadError("Site not supported.")
+        
     work_dir = os.path.join("downloads", uuid.uuid4().hex)
     os.makedirs(work_dir, exist_ok=True)
     output_template = os.path.join(work_dir, "%(id)s.%(ext)s")
+    
     opts = {
         "outtmpl": output_template, "quiet": True, "no_warnings": True,
         "noplaylist": True, "restrictfilenames": True,
     }
+    
     if progress_hook:
         opts["progress_hooks"] = [progress_hook]
+        
     if mp3:
         opts.update({
             "format": "bestaudio/best",
@@ -89,6 +98,7 @@ def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: O
     else:
         opts["format"] = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
         opts["merge_output_format"] = "mp4"
+        
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -105,10 +115,13 @@ def download(url: str, mp3: bool = False, quality: str = "192", progress_hook: O
     except Exception as e:
         shutil.rmtree(work_dir, ignore_errors=True)
         raise DownloadError(f"Download failed: {e}")
+        
     if not filename or not os.path.exists(filename):
         shutil.rmtree(work_dir, ignore_errors=True)
         raise DownloadError("File not created.")
+        
     if os.path.getsize(filename) > MAX_BYTES:
         shutil.rmtree(work_dir, ignore_errors=True)
         raise DownloadError(f"File too large (> {MAX_FILE_SIZE_MB}MB).")
+        
     return filename, work_dir
